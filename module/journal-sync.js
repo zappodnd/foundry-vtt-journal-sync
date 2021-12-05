@@ -148,7 +148,8 @@ export async function readyModule() {
     });
 
     Hooks.on("getSceneControlButtons", (controls) => {
-        let group = controls.find(b => b.name == "notes")
+        let group = controls.find(function(b) {
+	    return b.name == "notes" });
         group.tools.push({
             name: "import",
             title: "Import Journals",
@@ -220,6 +221,15 @@ async function startExport() {
     ui.notifications.info("Export completed");
 }
 
+function validGameName() {
+    if (typeof game.world.name == "undefined") {
+	// Version 8 of fvtt ?
+	return game.world.data.name;
+    } else {
+	return game.world.name;
+    }
+}
+
 function validMarkdownSourcePath() {
     let validMarkdownSourcePath = markdownSourcePath.replace("\\", "/");
     validMarkdownSourcePath += validMarkdownSourcePath.endsWith("/") ? "" : "/";
@@ -228,13 +238,14 @@ function validMarkdownSourcePath() {
 }
 
 function validImportWorldPath() {
-    let validImportWorldPath = importWorldPath == "" ? (game.world.name + "/") : importWorldPath;
+    let validImportWorldPath = importWorldPath == "" ? (validGameName() + "/") : importWorldPath;
     validImportWorldPath += validImportWorldPath.endsWith("/") ? "" : "/";
     return validImportWorldPath;
 }
 
 function validExportWorldPath() {
-    let validExportWorldPath = exportWorldPath == "" ? (game.world.name + "/") : exportWorldPath;
+    console.log(game.world)
+    let validExportWorldPath = exportWorldPath == "" ? (validGameName() + "/") : exportWorldPath;
     validExportWorldPath += validExportWorldPath.endsWith("/") ? "" : "/";
     return validExportWorldPath;
 }
@@ -309,9 +320,9 @@ async function createJournalFolders(rootPath, parentFolderId) {
         }
 
         folderDetails = game.folders.filter(f => (f.data.type === "JournalEntry") && (f.data.name === thisFolderName) && (f.data.parent === parentFolderId));
-        Logger.logTrace(`createJournalFolders | folder: ${folder} thisFolderName: ${thisFolderName} folderDetails._id: ${folderDetails[0]._id} folderDetails: ${JSON.stringify(folderDetails)}`)
+        Logger.logTrace(`createJournalFolders | folder: ${folder} thisFolderName: ${thisFolderName} folderDetails.id: ${folderDetails[0].id} folderDetails: ${JSON.stringify(folderDetails)}`)
 
-        createJournalFolders(folder, folderDetails[0]._id);
+        createJournalFolders(folder, folderDetails[0].id);
     }
 }
 
@@ -340,8 +351,8 @@ async function importFile(file) {
             const path = pathArray[index];
             if (path != '') {
                 let folder = game.folders.filter(f => (f.data.type === "JournalEntry") && (f.data.name === path) && (f.data.parent === currentParent));
-                currentParent = folder[0]._id;
-                Logger.logTrace(`currentParent: '${currentParent}' path: '${path}' folder: '${JSON.stringify(folder)}' (${folder[0]._id}) '${typeof folder}' '${folder.length}'`);
+                currentParent = folder[0].id;
+                Logger.logTrace(`currentParent: '${currentParent}' path: '${path}' folder: '${JSON.stringify(folder)}' (${folder[0].id}) '${typeof folder}' '${folder.length}'`);
             }
         }
     }
@@ -462,11 +473,15 @@ async function exportJournal(journalEntry, parentPath) {
 async function createFolderTree(dataset) {
     let hashTable = Object.create(null);
     let dataTree = [];
-    dataset.forEach(folderEntity => hashTable[folderEntity.id] = { ...folderEntity, childNodes: [] });
+    dataset.forEach(folderEntity => hashTable[folderEntity.id] = {
+	data : folderEntity.data,
+	content : folderEntity.content,
+	children : folderEntity.children,
+	childNodes : [] });
 
     dataset.forEach(folderEntity => {
-        if (folderEntity.parent) {
-            hashTable[folderEntity.parent.id].childNodes.push(hashTable[folderEntity.id]);
+	if (folderEntity.data.parent) {
+            hashTable[folderEntity.data.parent].childNodes.push(hashTable[folderEntity.id]);
         } else {
             dataTree.push(hashTable[folderEntity.id]);
         }

@@ -1,6 +1,13 @@
+# About this Fork
+
+This fork was made to make journal-sync work with 0.8 of Foundry.
+
+My intention is to make it a little easier to use Emacs as my primary editing environment for Journal entries.
+
+
 # Foundry VTT Journal Sync
 
-![journal-sync-downloads](https://img.shields.io/github/downloads/sytone/foundry-vtt-journal-sync/latest/total)
+![journal-sync-downloads](https://img.shields.io/github/downloads/zappodnd/foundry-vtt-journal-sync/latest/total)
 
 This module will allow you to export and import Journal entries to the server and store them as markdown files.
 

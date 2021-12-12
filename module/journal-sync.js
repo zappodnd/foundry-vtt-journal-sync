@@ -73,6 +73,60 @@ export async function initModule() {
     if (enableTracing) {
         Logger.enableTracing();
     }
+
+    // Use Chat Commands Lib to register some new chat commands
+    Hooks.on("chatCommandsReady", function(chatCommands) {
+    
+    	Logger.log("Registering chat commands")
+    	
+    	// GM Only command that will do the journal sync activity
+    	chatCommands.registerCommand(chatCommands.createCommandFromData({
+    	    commandKey: "/js",
+    	    invokeOnCommand: (chatlog, messageText, chatdata) => {
+		switch (messageText) {
+		case "help":
+		    return "This is a help string";
+		    
+		case "test": // /js test
+                    FilePicker.browse(markdownPathOptions.activeSource, "/").then((result) => {
+			ChatMessage.create({content: JSON.stringify(result)});
+                    });
+		    
+                    console.log(game.journal);
+                    game.journal.forEach((value, key, map) => {
+			Logger.log(`m[${key}] = ${value.data.name} - ${value.data.folder} - ${value.data.content}`);
+                    });
+                    return false;
+
+		case "export":
+		    startExport();
+		    return "Journal Export Complete";
+		    
+		case "import":
+		    startImport();
+		    return "Journal Import Complete";
+
+		case "nukejournals":
+                    game.journal.forEach((value, key, map) => { JournalEntry.delete(value.id); });
+		    return "Journal Nuke Complete";
+		    
+		case "nukefolders":
+                    game.journal.forEach((value, key, map) => { JournalEntry.delete(value.id); });
+		    return "Folder Nuke Complete";
+		    
+		default:
+    		    return "Unknown journal-sync command:\n  " + messageText;
+		}
+		
+    	    },
+    
+    	    shouldDisplayToChat: true,
+    	    iconClass: "fa-sticky-note",
+    	    description: "Synchronize Journals for external editors",
+    	    gmOnly: true
+    	}));
+    });
+        
 }
 
 export async function readyModule() {
@@ -95,56 +149,6 @@ export async function readyModule() {
                     Logger.log(error);
                 }
             });
-    });
-
-    Hooks.on("preCreateChatMessage", async (data, options, userId) => {
-        if (data.content === undefined || data.content.length == 0) return;
-        let content = data.content || "";
-        if (!content.trim().startsWith("/js")) return;
-
-        let command = content.replace("/js", "").trim();
-
-        switch (command) {
-            case "help":
-                data.content = "HERE IS HELP!";
-                return true;
-                break;
-
-            case "test": // /js test
-                FilePicker.browse(markdownPathOptions.activeSource, "/").then((result) => {
-                     ChatMessage.create({content: JSON.stringify(result)});
-                });
-
-                console.log(game.journal);
-                game.journal.forEach((value, key, map) => {
-                    Logger.log(`m[${key}] = ${value.data.name} - ${value.data.folder} - ${value.data.content}`);
-                });
-                return false;
-                break;
-
-            case "export": // /js export
-                await startExport();
-                return false;
-                break;
-
-            case "import": // /js import
-                await startImport();
-                return false;
-                break;
-
-            case "nukejournals":
-                game.journal.forEach((value, key, map) => { JournalEntry.delete(value.id); });
-                break;
-
-            case "nukefolders":
-                game.journal.forEach((value, key, map) => { JournalEntry.delete(value.id); });
-                break;
-
-            default:
-                data.content = "HERE IS HELP!";
-                return true;
-                break;
-        }
     });
 
     Hooks.on("getSceneControlButtons", (controls) => {
@@ -244,7 +248,7 @@ function validImportWorldPath() {
 }
 
 function validExportWorldPath() {
-    console.log(game.world)
+    //console.log(game.world)
     let validExportWorldPath = exportWorldPath == "" ? (validGameName() + "/") : exportWorldPath;
     validExportWorldPath += validExportWorldPath.endsWith("/") ? "" : "/";
     return validExportWorldPath;

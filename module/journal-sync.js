@@ -215,9 +215,11 @@ async function startExport() {
     let journalFolders = await createFolderTree(game.folders.filter(f => (f.data.type === "JournalEntry") && f.displayed))
 
     journalFolders.forEach(folderEntity => {
-        exportFolder(folderEntity, validMarkdownSourcePath()+validExportWorldPath());
+        createExportFolder(folderEntity, validMarkdownSourcePath()+validExportWorldPath());
     });
 
+    // After creating all the files in subfolders, this bit saves all journal entries in the root
+    // - ie - journals not in a subfolder.
     game.journal.filter(f => (f.data.folder === "")).forEach((value, key, map) => {
         Logger.logTrace(`m[${key}] = ${value.data.name} - ${value.data.folder} - ${value.data.type}`);
         exportJournal(value, validMarkdownSourcePath()+validExportWorldPath());
@@ -395,7 +397,7 @@ async function importFile(file) {
     });
 }
 
-async function exportFolder(folder, parentPath) {
+async function createExportFolder(folder, parentPath) {
     let folderPath = (parentPath + '/' + folder.data.name).replace("//", "/").trim();
 
     // Create folder directory on server. 
@@ -403,13 +405,13 @@ async function exportFolder(folder, parentPath) {
     // as no way to check for folder existance that I saw.
     FilePicker.createDirectory(markdownPathOptions.activeSource, parentPath)
         .then((result) => {
-            Logger.log(`Creating ${parentPath}`);
+            Logger.log(`Creating parent path ${parentPath}`);
         })
         .catch((error) => {
             if (!error.includes("EEXIST")) {
                 Logger.log(error);
             } else {
-                Logger.log(`${parentPath} exists`);
+                Logger.log(`Parent path ${parentPath} exists`);
             }
         });
 
@@ -434,7 +436,7 @@ async function exportFolder(folder, parentPath) {
 
     // Recurse for any sub folders. 
     folder.children.forEach(folderEntity => {
-        exportFolder(folderEntity, folderPath);
+        createExportFolder(folderEntity, folderPath);
     });
 }
 

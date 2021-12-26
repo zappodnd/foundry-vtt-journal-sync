@@ -88,14 +88,15 @@ export async function initModule() {
 		    return "This is a help string";
 		    
 		case "test": // /js test
-                    FilePicker.browse(markdownPathOptions.activeSource, "/").then((result) => {
-			ChatMessage.create({content: JSON.stringify(result)});
-                    });
+		    let dir = validMarkdownSourcePath()+validImportWorldPath() + "Hammondshire";
+		    Logger.log('Starting TEST sequence at ' + dir);
+		    scanDirectoryTree(dir);
 		    
-                    console.log(game.journal);
-                    game.journal.forEach((value, key, map) => {
-			Logger.log(`m[${key}] = ${value.data.name} - ${value.data.folder} - ${value.data.content}`);
-                    });
+                    //console.log(game.journal);
+                    //game.journal.forEach((value, key, map) => {
+		    //	Logger.log(`m[${key}] = ${value.data.name} - ${value.data.folder}`);
+		    //	Logger.log(value)
+                    //});
                     return false;
 
 		case "export":
@@ -127,6 +128,30 @@ export async function initModule() {
     	}));
     });
         
+}
+
+function journalModifiedHookFcn(journalEntry, d, opts, userId) {
+    let dirty = journalEntry.getFlag('journal-sync', 'ExportDirty');
+    let mods = journalEntry.getFlag('journal-sync', 'LastModified');
+
+    // Only mark as dirty if the "content", "folder" or "name" changed.
+    if ( "content" in d || "name" in d || "folder" in d ) {
+	Logger.log("Journal Content Changed");
+	setJournalSyncDirty(journalEntry, true);
+    } else {
+	//Logger.log("Journal Flags or other Changed");
+    }
+}
+
+function setJournalSyncDirty(journalEntry, dirty) {
+    // Set the dirty flag as specified.
+    journalEntry.setFlag('journal-sync', 'ExportDirty', dirty);
+
+    // If this journal is now dirty, then also set lastmodified.
+    // If it is clean, then leave the old modified flag.
+    if (dirty) {
+	journalEntry.setFlag('journal-sync', 'LastModified', Date.now());
+    }
 }
 
 export async function readyModule() {
@@ -185,6 +210,9 @@ export async function readyModule() {
             });
         }
     });
+
+    // Initialize tracking journal edits so we can auto-sync
+    Hooks.on("updateJournalEntry", journalModifiedHookFcn);
 }
 
 async function startImport() {
@@ -446,8 +474,15 @@ async function exportJournal(journalEntry, parentPath) {
         return;
     }
 
+    if (! journalEntry.getFlag('journal-sync', 'ExportDirty')) {
+        Logger.log(`Skipping ${journalEntry.name} because it is clean`);
+	return;
+    }
+
+    
     if(!isValidFileName(journalEntry.name)) {
         ChatMessage.create({ content: `Unable to export:<br /> <strong>${parentPath}/${journalEntry.name}</strong><br />It has invalid character(s) in its name that can not be used in file names.<br /><br /> These characters are invalid: <pre>| * ? \ : < > $</pre><br />Please rename the Journal Entry and export again.` });
+	return;
     }
     
 
@@ -467,6 +502,11 @@ async function exportJournal(journalEntry, parentPath) {
     let blob = new Blob([md], {type: "text/markdown"});
     let file = new File([blob], journalFileName, {type: "text/markdown"});
 
+    // I'd like to get the last modified date of the file and compare to optimize
+    // when to save, export, ore identify a conflict.  Not sure how to do that.
+    //let lastMod = journalEntry.getFlag('journal-sync', 'LastSyncedTime');
+    //Logger.log(`Compare Sync time: File: ${file.lastModified},  Journal Last Sync: ${lastMod}`);
+    
     FilePicker.upload(markdownPathOptions.activeSource, parentPath, file, { bucket: null })
         .then((result) => {
             Logger.log(`Uploading ${parentPath}/${journalFileName}`);
@@ -474,6 +514,9 @@ async function exportJournal(journalEntry, parentPath) {
         .catch((error) => {
             Logger.log(error);
         });
+
+    // Mark as clean (doesn't need to save anymore)
+    setJournalSyncDirty(journalEntry, false);
 }
 
 async function createFolderTree(dataset) {
@@ -495,3 +538,25 @@ async function createFolderTree(dataset) {
     return dataTree;
 }
 
+
+async function scanDirectoryTree(start_dir) {
+    // Scan directories and build out a tree of all the files on disk.
+
+    FilePicker.browse(markdownPathOptions.activeSource, start_dir).then((result) => {
+	result.files.forEach((file, key, map) => {
+	    //Logger.log("Scan " + file)
+	    //
+	    //fetch(file).then(response => response.blob())
+	    //	.then(blob => {
+	    //	    const file = new File([blob], blob.name);
+	    //	    Logger.log(file);
+	    //	    // Logger.log(file.lastModifiedDate, file.lastModified);
+	    //	});
+	    //
+	});
+
+	// result.dirs.forEach
+	
+    });
+
+}

@@ -94,7 +94,7 @@ export async function scanDirectoryTree(markdownpathopts, start_dir) {
 	let dirsmall = decodeURIComponent(dir).replace(start_dir+"/", '');
 	let subdir = start_dir + "/" + dirsmall;
 
-	Logger.log("Scanning Down to: " + subdir);
+	//Logger.log("Scanning Down to: " + subdir);
 	
 	subdirmap[idx] = await scanDirectoryTree(markdownpathopts, subdir);
 	idx = idx+1;
@@ -206,7 +206,7 @@ export function mergeJournalAndFileTrees(filetree, journaltree) {
 	    return file.name === j.data.name; });
 	let newnode;
 
-	Logger.log(`${treenode.name}: File Attempt: ${file.name} Found: ${jidx}`);
+	//Logger.log(`${treenode.name}: File Attempt: ${file.name} Found: ${jidx}`);
 	
 	if (jidx == -1) {
 	    newnode = { name: file.name,
@@ -246,7 +246,7 @@ export function mergeJournalAndFileTrees(filetree, journaltree) {
     //Logger.log(`${treenode.name} Journal Length After: ${journals.length}`);
     for (let idx=0; idx<journals.length; idx++) {
 	let journal = journals[idx];
-	Logger.log(`${treenode.name}: Solo Journal: ${journal.name}`);
+	//Logger.log(`${treenode.name}: Solo Journal: ${journal.name}`);
 
 	let newnode = { name: journal.data.name,
 			file: undefined,
@@ -271,7 +271,7 @@ export function mergeJournalAndFileTrees(filetree, journaltree) {
 	let fidx = folders.findIndex(f => { return subdir.name === f.name} );
 	let newnode;
 
-	Logger.log(`${treenode.name}: Subdir Attempt: ${subdir.name} Found: ${fidx}`);
+	//Logger.log(`${treenode.name}: Subdir Attempt: ${subdir.name} Found: ${fidx}`);
 	
 	if (fidx == -1) {
 	    newnode = mergeJournalAndFileTrees(subdir, undefined);
@@ -289,7 +289,7 @@ export function mergeJournalAndFileTrees(filetree, journaltree) {
     // Cleanup left over journal folders
     for (let idx=0; idx<folders.length; idx++) {
 	let folder = folders[idx];
-	Logger.log(`${treenode.name} Solo Folder: ${folder.name}`);
+	//Logger.log(`${treenode.name} Solo Folder: ${folder.name}`);
 	let newnode = mergeJournalAndFileTrees(undefined, folder);
 	treenode.subdir.push(newnode);
     };
@@ -297,6 +297,20 @@ export function mergeJournalAndFileTrees(filetree, journaltree) {
     return treenode;
 }
 
+//
+// Compute a data tree data structure that represents all the journal entries
+// and their folders, plus all the files on disk that needs to be synched up.
+//
+export async function computeTreeForJournals(markdownPathOptions, dir) {
+
+    let fmap = await scanDirectoryTree(markdownPathOptions, dir);
+
+    let jmap = await scanJournalTree();
+
+    let mmap = mergeJournalAndFileTrees(fmap, jmap);
+    
+    return mmap;
+}
 
 export async function createJournalFolderTree() {
     // Create the set of folders derived from the current set of Journals.

@@ -1,6 +1,7 @@
 "use strict";
 import * as Constants from "./constants.js"
 import * as Logger from './logger.js'
+import * as FileMap from './filemap.js'
 
 let markdownPathOptions, markdownSourcePath, journalEditorLink, importWorldPath, exportWorldPath;
 let enableTracing = false;
@@ -82,15 +83,27 @@ export async function initModule() {
     	// GM Only command that will do the journal sync activity
     	chatCommands.registerCommand(chatCommands.createCommandFromData({
     	    commandKey: "/js",
-    	    invokeOnCommand: (chatlog, messageText, chatdata) => {
+    	    invokeOnCommand: async (chatlog, messageText, chatdata) => {
 		switch (messageText) {
 		case "help":
 		    return "This is a help string";
 		    
 		case "test": // /js test
-		    let dir = validMarkdownSourcePath()+validImportWorldPath() + "Hammondshire";
+		    let dir = validMarkdownSourcePath()+validImportWorldPath();
 		    Logger.log('Starting TEST sequence at ' + dir);
-		    scanDirectoryTree(dir);
+		    let map = [];
+
+		    let fmap = await FileMap.scanDirectoryTree(markdownPathOptions, dir);
+		    Logger.log("File Maps");
+		    Logger.log(fmap);
+
+		    let jmap = await FileMap.scanJournalTree();
+		    Logger.log("Journal Maps");
+		    Logger.log(jmap);
+
+		    let mmap = FileMap.mergeJournalAndFileTrees(fmap, jmap);
+		    Logger.log("Merged Map");
+		    Logger.log(mmap);
 		    
                     //console.log(game.journal);
                     //game.journal.forEach((value, key, map) => {
@@ -240,7 +253,7 @@ async function startImport() {
 }
 
 async function startExport() {
-    let journalFolders = await createFolderTree(game.folders.filter(f => (f.data.type === "JournalEntry") && f.displayed))
+    let journalFolders = await filemap.createJournalFolderTree();
 
     journalFolders.forEach(folderEntity => {
         createExportFolder(folderEntity, validMarkdownSourcePath()+validExportWorldPath());
@@ -539,24 +552,3 @@ async function createFolderTree(dataset) {
 }
 
 
-async function scanDirectoryTree(start_dir) {
-    // Scan directories and build out a tree of all the files on disk.
-
-    FilePicker.browse(markdownPathOptions.activeSource, start_dir).then((result) => {
-	result.files.forEach((file, key, map) => {
-	    //Logger.log("Scan " + file)
-	    //
-	    //fetch(file).then(response => response.blob())
-	    //	.then(blob => {
-	    //	    const file = new File([blob], blob.name);
-	    //	    Logger.log(file);
-	    //	    // Logger.log(file.lastModifiedDate, file.lastModified);
-	    //	});
-	    //
-	});
-
-	// result.dirs.forEach
-	
-    });
-
-}

@@ -479,8 +479,6 @@ async function doActionExport(action) {
     setJournalSyncDirty(action.what.journal, false);    
 }
 
-var globalActionFolderCreateCache = [];
-
 function findJFolderFromDirname(dirname,back=0) {
     // Find a JournalEntry Folder derived from the pathname DIRNAME.
     // Optional input BACK by default takes the last entry in DIRNAME (0)
@@ -504,7 +502,6 @@ async function doActionMkFolder(action) {
 	// At depth 1, jwhere will be empty, so just go with null for parent folder.
 	Logger.log(`Create root folder: ${action.what.name}`);
 	let F = await Folder.create({name: action.what.name, type: "JournalEntry", parent: "" });
-	globalActionFolderCreateCache.push(F);
     } else if (action.depth >= 2) {
 	// At depth 2 or more the jwhere field should not be undefined.  If it is, then hopefully
 	// a previous action created the parent journal.  Go find it.  If not, skip.
@@ -520,7 +517,6 @@ async function doActionMkFolder(action) {
 	// jwhere is set - just do it.
 	Logger.log(`Create sub folder: ${action.what.name} under ${parent.data.name}`);
 	let F = await Folder.create({name: action.what.name, type: "JournalEntry", parent: parent.data._id });
-	globalActionFolderCreateCache.push(F);
     }
 }
 
@@ -608,7 +604,6 @@ async function commandExport() {
 
 async function commandImport() {
     let actions = await computeSyncActions();
-    globalActionFolderCreateCache = []; // Re-init to empty
     
     // Create all the journal folders.
     for (const a of actions.filter(a => a.action==="mkfolder")) {
@@ -626,8 +621,6 @@ async function commandSync() {
     let actions = await computeSyncActions();
     let dir = 0, fold=0, ex = 0, im = 0, con = 0;
 
-    globalActionFolderCreateCache = []; // Re-init to empty
-    
     // Create all the journal folders.
     for (const a of actions.filter(a => a.action==="mkfolder")) {
 	fold++;
@@ -648,53 +641,6 @@ async function commandSync() {
 
     ui.notifications.info(`Sync Complete:  Directory Creation (${dir}) Export (${ex}) Folder Create (${fold}) Import (${im})`);
 }
-
-// ---------
-//
-// OLD COMMANDS:  Misc command fcns we want to obsolete.
-//
-// ---------
-
-async function startImport() {
-    await createJournalFolders(validMarkdownSourcePath()+validImportWorldPath(), null);
-    let result = await FilePicker.browse(markdownPathOptions.activeSource, validMarkdownSourcePath()+validImportWorldPath());
-    for (let [key, file] of Object.entries(result.files)) {
-        if(isValidFile(file)) {
-            await importFile(file);
-        }
-    }
-    for (let [key, folder] of Object.entries(result.dirs)) {
-        await importFolder(folder);
-    }
-
-    ui.notifications.info("Import completed");
-    // FilePicker.browse(markdownPathOptions.activeSource, validMarkdownSourcePath()).then((result) => {
-    //     Logger.log(result);
-    //     result.files.forEach(file => {
-    //         importFile(file);
-    //     });
-    //     result.dirs.forEach(folder => {
-    //         importFolder(folder);
-    //     });
-    // });
-}
-
-async function startExport() {
-    let journalFolders = await filemap.createJournalFolderTree();
-
-    journalFolders.forEach(folderEntity => {
-        createExportFolder(folderEntity, validMarkdownSourcePath()+validExportWorldPath());
-    });
-
-    // After creating all the files in subfolders, this bit saves all journal entries in the root
-    // - ie - journals not in a subfolder.
-    game.journal.filter(f => (f.data.folder === "")).forEach((value, key, map) => {
-        Logger.logTrace(`m[${key}] = ${value.data.name} - ${value.data.folder} - ${value.data.type}`);
-        exportJournal(value, validMarkdownSourcePath()+validExportWorldPath());
-    });
-    ui.notifications.info("Export completed");
-}
-
 
 // ---------
 //
@@ -731,10 +677,6 @@ function validExportWorldPath() {
     return validExportWorldPath;
 }
 
-function isValidFile(filename) {
-    return filename.endsWith('.md');
-}
-
 function isValidFileName(filename) {
     var re = /^(?!\.)(?!com[0-9]$)(?!con$)(?!lpt[0-9]$)(?!nul$)(?!prn$)[^\|\*\?\\:<>/$"]*[^\.\|\*\?\\:<>/$"]+$/
     return re.test(filename);
@@ -742,21 +684,6 @@ function isValidFileName(filename) {
 
 function generateJournalFileName(journalEntity) {
     return `${journalEntity.name} (${journalEntity.id}).md`
-}
-
-function getJournalIdFromFilename(fileName) {
-    // 'sdfkjs dflksjd kljf skldjf(IDIDIDIID).md
-    return last(fileName.split('(')).replace(').md', '');
-}
-
-function getJournalTitleFromFilename(fileName) {
-    // 'sdfkjs dflksjd kljf skldjf(IDIDIDIID).md
-    // Remove the ID if i is there and any .md remaining so it is just the file name with no extension.
-    return fileName.replace(`(${getJournalIdFromFilename(fileName)}).md`, '').replace('.md', '');
-}
-
-function last(array) {
-    return array[array.length - 1];
 }
 
 function hasJsonStructure(str) {
@@ -771,218 +698,5 @@ function hasJsonStructure(str) {
     }
 }
 
-//async function importFolder(importFolderPath) {
-//    Logger.logTrace(`Importing folder: ${importFolderPath}`);
-//    let result = await FilePicker.browse(markdownPathOptions.activeSource, importFolderPath);
-//
-//    for (let [key, file] of Object.entries(result.files)) {
-//        if(isValidFile(file)) {
-//            await importFile(file);
-//        }
-//    }
-//
-//    for (let [key, folder] of Object.entries(result.dirs)) {
-//        await importFolder(folder);
-//    }
-//}
-
-// This will create the journal folder in FVTT
-async function createJournalFolders(rootPath, parentFolderId) {
-    Logger.logTrace(`createJournalFolders | Params(folder = ${rootPath} parent = ${parentFolderId})`)
-    let result = await FilePicker.browse(markdownPathOptions.activeSource, rootPath)
-    for (let [key, folder] of Object.entries(result.dirs)) {
-        let thisFolderName = last(decodeURIComponent(folder).split('/'));
-        let folderDetails = game.folders.filter(f => (f.data.type === "JournalEntry") && (f.data.name === thisFolderName) && (f.data.parent === parentFolderId));
-
-        if (folderDetails.length == 0) {
-            Logger.logTrace(`createJournalFolders | Creating folder path: ${thisFolderName} parent: ${parentFolderId}`)
-            Logger.logTrace(`${JSON.stringify({ name: thisFolderName, type: "JournalEntry", parent: parentFolderId })}`);
-            await Folder.create({ name: thisFolderName, type: "JournalEntry", parent: parentFolderId });
-        }
-
-        folderDetails = game.folders.filter(f => (f.data.type === "JournalEntry") && (f.data.name === thisFolderName) && (f.data.parent === parentFolderId));
-        Logger.logTrace(`createJournalFolders | folder: ${folder} thisFolderName: ${thisFolderName} folderDetails.id: ${folderDetails[0].id} folderDetails: ${JSON.stringify(folderDetails)}`)
-
-        createJournalFolders(folder, folderDetails[0].id);
-    }
-}
-
-// async function importFile(file) {
-//     Logger.logTrace(`importFile | params(file = ${file})`);
-//     var journalPath = decodeURIComponent(file).replace(validMarkdownSourcePath()+validImportWorldPath(), '').trim();
-//     var pathUrl = (journalPath.startsWith('https://') ? new URL(journalPath) : '')
-//     if(pathUrl) {
-//         var tempPathArray = pathUrl.pathname.split("/");
-//         journalPath = tempPathArray.slice(2).join("/").replace(/\%20/gi," ");
-//     }
-//     var journalId = getJournalIdFromFilename(journalPath).trim();
-//     var journalName = getJournalTitleFromFilename(last(journalPath.split('/'))).trim();
-//     var parentPath = journalPath.replace(last(journalPath.split('/')), '').trim();
-// 
-//     if (skippedJournalEntries.includes(journalName) || skippedJournalFolders.includes(last(journalPath.split('/')))) {
-//         return;
-//     }
-// 
-//     let currentParent = null;
-// 
-//     if (parentPath != '') {
-//         let pathArray = parentPath.split('/');
-//         for (let index = 0; index < pathArray.length; index++) {
-// 
-//             const path = pathArray[index];
-//             if (path != '') {
-//                 let folder = game.folders.filter(f => (f.data.type === "JournalEntry") && (f.data.name === path) && (f.data.parent === currentParent));
-//                 currentParent = folder[0].id;
-//                 Logger.logTrace(`currentParent: '${currentParent}' path: '${path}' folder: '${JSON.stringify(folder)}' (${folder[0].id}) '${typeof folder}' '${folder.length}'`);
-//             }
-//         }
-//     }
-// 
-//     Logger.logTrace(`'${file}','${journalPath}','${journalId}','${journalName}','${parentPath}','${currentParent}'`);
-// 
-//     if(!pathUrl) file = '/' + file;
-//     fetch(file).then(response => {
-//         response.text().then(journalContents => {
-//             let updated = false;
-//             let md = "";
-// 
-//             // If the contents is pure JSON ignore it as it may be used by 
-//             // a module as configuration storage.
-//             if (hasJsonStructure(journalContents)) {
-//                 md = journalContents
-//             } else {
-//                 var converter = new showdown.Converter({ tables: true, strikethrough: true })
-//                 md = converter.makeHtml(journalContents);
-//             }
-// 
-//             game.journal.filter(f => (f.id === journalId)).forEach((value, key, map) => {
-//                 Logger.log(`Importing ${journalPath} with ID ${journalId} named ${journalName}`);
-//                 value.update({ content: md });
-//                 updated = true;
-//             });
-// 
-//             if (!updated) {
-//                 Logger.log(`Creating ${journalPath} named ${journalName}`);
-//                 JournalEntry.create({ name: journalName, content: md, folder: currentParent }).then(journal => { journal.show(); });
-//                 ChatMessage.create({ content: `Added ${journalName}, please run export and delete '${journalName}.md'` });
-//             }
-// 
-//         });
-// 
-//     });
-// }
-
-// async function createExportFolder(folder, parentPath) {
-//     let folderPath = (parentPath + '/' + folder.data.name).replace("//", "/").trim();
-// 
-//     // Create folder directory on server. 
-//     // Try and create parent path before child, have to catch error 
-//     // as no way to check for folder existance that I saw.
-//     FilePicker.createDirectory(markdownPathOptions.activeSource, parentPath)
-//         .then((result) => {
-//             Logger.log(`Creating parent path ${parentPath}`);
-//         })
-//         .catch((error) => {
-//             if (!error.includes("EEXIST")) {
-//                 Logger.log(error);
-//             } else {
-//                 Logger.log(`Parent path ${parentPath} exists`);
-//             }
-//         });
-// 
-//     FilePicker.createDirectory(markdownPathOptions.activeSource, folderPath)
-//         .then((result) => {
-//             Logger.log(`Creating ${folderPath}`);
-//             folder.content.forEach(journalEntry => {
-//                 exportJournal(journalEntry, folderPath);
-//             });
-//         })
-//         .catch((error) => {
-//             if (!error.includes("EEXIST")) {
-//                 Logger.log(error);
-//             } else {
-//                 Logger.log(`${folderPath} exists`);
-//                 folder.content.forEach(journalEntry => {
-//                     exportJournal(journalEntry, folderPath);
-//                 });
-//             }
-//         });
-// 
-// 
-//     // Recurse for any sub folders. 
-//     folder.children.forEach(folderEntity => {
-//         createExportFolder(folderEntity, folderPath);
-//     });
-// }
-
-// async function exportJournal(journalEntry, parentPath) {
-//     if (skippedJournalEntries.includes(journalEntry.name) || skippedJournalFolders.includes(last(parentPath.split('/')))) {
-//         Logger.log(`Skipping ${journalEntry.name} as it matches exclusion rules`)
-//         return;
-//     }
-// 
-//     if (! journalEntry.getFlag('journal-sync', 'ExportDirty')) {
-//         Logger.log(`Skipping ${journalEntry.name} because it is clean`);
-// 	return;
-//     }
-// 
-//     
-//     if(!isValidFileName(journalEntry.name)) {
-//         ChatMessage.create({ content: `Unable to export:<br /> <strong>${parentPath}/${journalEntry.name}</strong><br />It has invalid character(s) in its name that can not be used in file names.<br /><br /> These characters are invalid: <pre>| * ? \ : < > $</pre><br />Please rename the Journal Entry and export again.` });
-// 	return;
-//     }
-//     
-// 
-//     let md = "";
-//     let journalFileName = generateJournalFileName(journalEntry);
-// 
-//     // If the contents is pure JSON ignore it as it may be used by 
-//     // a module as configuration storage.
-//     if (hasJsonStructure(journalEntry.data.content)) {
-//         Logger.log(`Detected JSON, skipping markdown conversion for '${journalFileName}' located at '${parentPath}'`);
-//         md = journalEntry.data.content.split('\r\n');
-//     } else {
-//         var converter = new showdown.Converter({ tables: true, strikethrough: true });
-//         md = converter.makeMarkdown(journalEntry.data.content).split('\r\n');
-//     }
-// 
-//     let blob = new Blob([md], {type: "text/markdown"});
-//     let file = new File([blob], journalFileName, {type: "text/markdown"});
-// 
-//     // I'd like to get the last modified date of the file and compare to optimize
-//     // when to save, export, ore identify a conflict.  Not sure how to do that.
-//     //let lastMod = journalEntry.getFlag('journal-sync', 'LastSyncedTime');
-//     //Logger.log(`Compare Sync time: File: ${file.lastModified},  Journal Last Sync: ${lastMod}`);
-//     
-//     FilePicker.upload(markdownPathOptions.activeSource, parentPath, file, { bucket: null })
-//         .then((result) => {
-//             Logger.log(`Uploading ${parentPath}/${journalFileName}`);
-//         })
-//         .catch((error) => {
-//             Logger.log(error);
-//         });
-// 
-//     // Mark as clean (doesn't need to save anymore)
-//     setJournalSyncDirty(journalEntry, false);
-// }
-
-// async function createFolderTree(dataset) {
-//     let hashTable = Object.create(null);
-//     let dataTree = [];
-//     dataset.forEach(folderEntity => hashTable[folderEntity.id] = {
-// 	data : folderEntity.data,
-// 	content : folderEntity.content,
-// 	children : folderEntity.children,
-// 	childNodes : [] });
-// 
-//     dataset.forEach(folderEntity => {
-// 	if (folderEntity.data.parent) {
-//             hashTable[folderEntity.data.parent].childNodes.push(hashTable[folderEntity.id]);
-//         } else {
-//             dataTree.push(hashTable[folderEntity.id]);
-//         }
-//     })
-//     return dataTree;
-// }
 
 

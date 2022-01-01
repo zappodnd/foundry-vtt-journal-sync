@@ -91,26 +91,12 @@ export async function initModule() {
 		case "test": // /js test
 		    let dir = validMarkdownSourcePath()+validImportWorldPath();
 		    Logger.log('Starting TEST sequence at ' + dir);
-		    let map = [];
 
-		    let fmap = await FileMap.scanDirectoryTree(markdownPathOptions, dir);
-		    Logger.log("File Maps");
-		    Logger.log(fmap);
-
-		    let jmap = await FileMap.scanJournalTree();
-		    Logger.log("Journal Maps");
-		    Logger.log(jmap);
-
-		    let mmap = FileMap.mergeJournalAndFileTrees(fmap, jmap);
+		    let mmap = await FileMap.computeTreeForJournals(markdownPathOptions, dir);
 		    Logger.log("Merged Map");
 		    Logger.log(mmap);
 		    
-                    //console.log(game.journal);
-                    //game.journal.forEach((value, key, map) => {
-		    //	Logger.log(`m[${key}] = ${value.data.name} - ${value.data.folder}`);
-		    //	Logger.log(value)
-                    //});
-                    return false;
+                    return "Test Complete";
 
 		case "export":
 		    startExport();
@@ -140,9 +126,13 @@ export async function initModule() {
     	    gmOnly: true
     	}));
     });
-        
 }
 
+// ---------
+//
+// Track how journals in FVTT change, and what needs to happen to them.
+//
+// ---------
 function journalModifiedHookFcn(journalEntry, d, opts, userId) {
     let dirty = journalEntry.getFlag('journal-sync', 'ExportDirty');
     let mods = journalEntry.getFlag('journal-sync', 'LastModified');
@@ -167,6 +157,11 @@ function setJournalSyncDirty(journalEntry, dirty) {
     }
 }
 
+// ---------
+//
+// Setup the module.
+//
+// ---------
 export async function readyModule() {
     Logger.log("Ready Module entered")
     await fetchParams();

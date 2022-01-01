@@ -6,22 +6,6 @@
 import * as Constants from "./constants.js"
 import * as Logger from './logger.js'
 
-function scrape_timestamp_file(contents) {
-
-    let linearray = contents.split(/\r\n|\n/);
-    let parsedarray = [];
-    let idx = 0;
-    linearray.forEach((line, key) => {
-	let colonsplit = line.split(/:/);
-	if (colonsplit.length == 2) {
-	    parsedarray[idx] = { file: colonsplit[0],
-				 timestamp: parseInt(colonsplit[1],10) };
-	    idx = idx+1;
-	}
-    });
-    return parsedarray;
-}
-
 //
 // Scan filesystem in the specified directories and build up a tree
 // of journal entries that have already been exported, or edited by
@@ -224,6 +208,8 @@ function jfNode(file, jnode) {
 		    // installed this module in an existing system with an old journal-sync - so no save needed.
 		    save_needed: jdirty,
 		    // If the file's reported timestamp is newer than the last edit time, then import is needed.
+		    // If the journal has no record of saving, but there is a file, then likely an install over and older
+		    // system.  We'll call these imports.
 		    import_needed: fdirty,
 		    // If we need to both save and import, then there is an issue.
 		    merge_conflict: jdirty && fdirty
@@ -366,6 +352,31 @@ export async function computeTreeForJournals(markdownPathOptions, dir) {
     
     return mmap;
 }
+
+//
+// UTILS
+//
+
+function scrape_timestamp_file(contents) {
+
+    let linearray = contents.split(/\r\n|\n/);
+    let parsedarray = [];
+    let idx = 0;
+    linearray.forEach((line, key) => {
+	let colonsplit = line.split(/:/);
+	if (colonsplit.length == 2) {
+	    parsedarray[idx] = { file: colonsplit[0],
+				 timestamp: parseInt(colonsplit[1],10) };
+	    idx = idx+1;
+	}
+    });
+    return parsedarray;
+}
+
+//
+// DELETE OBSOLETE BELOW
+//
+
 
 export async function createJournalFolderTree() {
     // Create the set of folders derived from the current set of Journals.

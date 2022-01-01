@@ -95,32 +95,42 @@ export async function initModule() {
 		    let mmap = await FileMap.computeTreeForJournals(markdownPathOptions, dir);
 		    Logger.log("Merged Map");
 		    Logger.log(mmap);
-		    
-                    return "Test Complete";
+
+		    let actions = await computeSyncActions(mmap);
+		    Logger.log("Computed Actions");
+		    Logger.log(actions);
+
+		    ChatMessage.create({content: "journal-sync: Actions Needed:<ol>" +
+					actions.map(a=>"<li>" + a.action +
+						    " \"" + a.what.name +
+						    "\" " + a.where).join('')
+					+ "</ol>"});
+		    return;
 
 		case "export":
 		    startExport();
-		    return "Journal Export Complete";
+		    return;
 		    
 		case "import":
 		    startImport();
-		    return "Journal Import Complete";
+		    return;
 
 		case "nukejournals":
                     game.journal.forEach((value, key, map) => { JournalEntry.delete(value.id); });
-		    return "Journal Nuke Complete";
+		    return;
 		    
 		case "nukefolders":
                     game.journal.forEach((value, key, map) => { JournalEntry.delete(value.id); });
-		    return "Folder Nuke Complete";
+		    return;
 		    
 		default:
-    		    return "Unknown journal-sync command:\n  " + messageText;
+		    ChatMessage.create({content: "Unknown journal-sync command:\n  " + messageText});
+		    return;
 		}
 		
     	    },
     
-    	    shouldDisplayToChat: true,
+    	    shouldDisplayToChat: false,
     	    iconClass: "fa-sticky-note",
     	    description: "Synchronize Journals for external editors",
     	    gmOnly: true
@@ -223,6 +233,76 @@ export async function readyModule() {
     Hooks.on("updateJournalEntry", journalModifiedHookFcn);
 }
 
+// ---------
+//
+// COMPUTE ACTIONS:  Identify what needs to be done.
+//
+// ---------
+async function computeSyncActions(mmap) {
+    // Compute the journal/file tree, and scan the tree for actions needed.
+    // Return a list of actions that are needed.
+    if (typeof mmap === "undefined") {
+	let dir = validMarkdownSourcePath()+validImportWorldPath();
+	mmap = await FileMap.computeTreeForJournals(markdownPathOptions, dir);
+    }
+
+    let actions = [];
+
+    let fcn = function (mmap, pathaccum) {
+	let path = pathaccum + "/" + mmap.file;
+
+	// Step 1: Do we need to make this directory?
+	if (!mmap.ondisk) {
+	    actions.push({ action: "mkdir",
+			   what: mmap,
+			   where: path });
+	}
+
+	// Step 2: Loop over all the files
+	for (let idx=0; idx < mmap.files.length; idx++) {
+	    let f = mmap.files[idx];
+
+	    // Step 2.1: Save merge conflicts.
+	    if (f.merge_conflict) {
+		actions.push({ action: "conflict",
+			       what: f,
+			       where: path });
+	    } else {
+		// Step 2.2: Save exports
+		if (f.save_needed) {
+		    actions.push({ action: "export",
+				   what: f,
+				   where: path });
+
+		    
+		} else
+		    // Step 2.3: Save imports
+		    if (f.import_needed) {
+			actions.push({ action: "import",
+				       what: f,
+				       where: path });
+		    } else {
+			//Logger.log(`No Action needed on ${f.name}`);
+		    }
+	    }
+	}
+
+	// Step 3: Loop over subdirs and recurse
+	for (let idx=0; idx < mmap.subdir.length; idx++) {
+	    fcn(mmap.subdir[idx], path);
+	}
+    };
+    
+    fcn(mmap,"");
+    
+    return actions;
+}
+
+// ---------
+//
+// ACTIONS:  Misc command fcns the user can initiate.
+//
+// ---------
 async function startImport() {
     await createJournalFolders(validMarkdownSourcePath()+validImportWorldPath(), null);
     let result = await FilePicker.browse(markdownPathOptions.activeSource, validMarkdownSourcePath()+validImportWorldPath());
@@ -262,6 +342,13 @@ async function startExport() {
     });
     ui.notifications.info("Export completed");
 }
+
+
+// ---------
+//
+// UTILS
+//
+// ---------
 
 function validGameName() {
     if (typeof game.world.name == "undefined") {

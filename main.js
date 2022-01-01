@@ -29,7 +29,7 @@ Hooks.once('init', async function () {
 });
 
 /* ------------------------------------ */
-/* Setup module							*/
+/* Setup module                         */
 /* ------------------------------------ */
 Hooks.once('setup', async function () {
     // Do anything after initialization but before
@@ -37,11 +37,20 @@ Hooks.once('setup', async function () {
 });
 
 /* ------------------------------------ */
-/* When ready							*/
+/* When ready                           */
 /* ------------------------------------ */
 Hooks.once('ready', async function () {
     // Do anything once the module is ready
     await JournalSync.readyModule();
 });
+
+/* ------------------------------------ */
+/* Add button to side-bar               */
+/* ------------------------------------ */
+
+Hooks.on("renderSidebarTab", async (app, html) => {
+    JournalSync.initSidebar(app, html);
+})
+
 
 // Add any additional hooks if necessary

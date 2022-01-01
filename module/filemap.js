@@ -35,7 +35,7 @@ async function scanDirectoryTree(markdownpathopts, start_dir) {
     // For each .md file we found, build up a map of actual files, files in the timestamp file
     // and known journal entry keys
 
-    let markdown = await result.files.filter(file => file.indexOf(".md") !== -1);
+    let markdown = await result.files.filter(file => file.endsWith(".md"));
     let filemap = [];
 
     let idx = 0;
@@ -273,7 +273,9 @@ function mergeJournalAndFileTrees(filetree, journaltree) {
     for (let idx=0; idx < files.length; idx++) {
 	let file = files[idx];
 	let jidx = journals.findIndex(j => {
-	    return file.name === j.data.name; });
+	    let ans = (file.name === j.data.name);
+	    // Logger.log(`jidx: "${file.name}" vs "${j.data.name}" -> ${ans}`);
+	    return ans; });
 	let newnode;
 
 	//Logger.log(`${treenode.name}: File Attempt: ${file.name} Found: ${jidx}`);

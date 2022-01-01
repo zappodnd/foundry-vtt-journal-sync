@@ -56,6 +56,9 @@ async function scanDirectoryTree(markdownpathopts, start_dir) {
 	// Old School version of journal-sync stored the id in the file name.
 	// Extract it here.  (It should be ok to do this.)
 	let id = filesmall.split(' (').pop().replace(').md', '');
+	if (id === filesmall) {
+	    id = undefined;
+	}
 	
 	// This works regardless of if there is an id in the name or not.
 	let name = filesmall.replace(` (${id}).md`, '').replace('.md', '');
@@ -112,7 +115,7 @@ async function scanJournalTree() {
     
     let hashTable = Object.create(null);
     let dataTree = {
-	name: game.world.data.name,
+	name: validGameName(),
 	subdirmap: [],
 	journalmap: [],
 	journal: undefined };
@@ -121,7 +124,8 @@ async function scanJournalTree() {
     journalFolders.forEach(folderEntity => hashTable[folderEntity.id] = {
 	name: folderEntity.data.name,
 	subdirmap: [],
-	journalmap: folderEntity.content,
+	// Exclude anything that has a JSON like structure.
+	journalmap: folderEntity.content.filter(j => !hasJSONStructure(j)),
 	journal: folderEntity});
 
     // Once the hash is filled, we can build via the hash table.
@@ -174,7 +178,7 @@ function jfNode(file, jnode) {
 	newnode = { name: file.name,
 		    file: file.file,
 		    filetimestamp: file.timestamp,
-		    journaltimestamp: undefined,
+		    journaltimestamp: NaN,
 		    ondisk: file.ondisk,
 		    id: file.id,
 		    journal: undefined,
@@ -189,12 +193,13 @@ function jfNode(file, jnode) {
 	if (typeof file.id === "string" && jnode.data._id !== file.id) {
 	    // TODO : multiple journals of same name ??
 	    // Work on this merge more.
-	    Logger.log(`${treenode.name}: ID for File Node ${file.name} does not match the found Journal of same name.`);
+	    Logger.log(`${jnode.name}: ID for File Node ${file.name} does not match the found Journal of same name.`);
+	    return undefined;
 	}
 
-	let jts = jnode.getFlag('journal-sync', 'LastModified');
+	let jts = Math.floor(jnode.getFlag('journal-sync', 'LastModified') / 1000); // convert to seconds to match file timestamp
 	let jdirty = jnode.getFlag('journal-sync', 'ExportDirty') ? true : false;
-	let fdirty = typeof jts === "undefined" || file.timestamp > jts;
+	let fdirty = isNaN(jts) || file.timestamp > jts;
 
 	newnode = { name: file.name,
 		    file: file.file,
@@ -373,6 +378,26 @@ function scrape_timestamp_file(contents) {
     return parsedarray;
 }
 
+function hasJSONStructure(str) {
+    if (typeof str !== 'string') return false;
+    try {
+        const result = JSON.parse(str);
+        const type = Object.prototype.toString.call(result);
+        return type === '[object Object]'
+            || type === '[object Array]';
+    } catch (err) {
+        return false;
+    }
+}
+
+function validGameName() {
+    if (typeof game.world.name == "undefined") {
+	// Version 8 of fvtt ?
+	return game.world.data.name;
+    } else {
+	return game.world.name;
+    }
+}
 //
 // DELETE OBSOLETE BELOW
 //

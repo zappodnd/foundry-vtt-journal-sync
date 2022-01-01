@@ -108,20 +108,22 @@ export async function initModule() {
 		    return;
 
 		case "export":
-		    startExport();
+		    commandExport();
+		    //startExport();
 		    return;
 		    
 		case "import":
-		    startImport();
+		    commandImport();
+		    //startImport();
 		    return;
 
-		case "nukejournals":
-                    game.journal.forEach((value, key, map) => { JournalEntry.delete(value.id); });
-		    return;
-		    
-		case "nukefolders":
-                    game.journal.forEach((value, key, map) => { JournalEntry.delete(value.id); });
-		    return;
+		//case "nukejournals":
+                //    game.journal.forEach((value, key, map) => { JournalEntry.delete(value.id); });
+		//    return;
+		//    
+		//case "nukefolders":
+                //    game.journal.forEach((value, key, map) => { JournalEntry.delete(value.id); });
+		//    return;
 		    
 		default:
 		    ChatMessage.create({content: "Unknown journal-sync command:\n  " + messageText});
@@ -149,20 +151,20 @@ function journalModifiedHookFcn(journalEntry, d, opts, userId) {
 
     // Only mark as dirty if the "content", "folder" or "name" changed.
     if ( "content" in d || "name" in d || "folder" in d ) {
-	Logger.log("Journal Content Changed");
 	setJournalSyncDirty(journalEntry, true);
+	Logger.log(`Journal "${journalEntry.data.name}" changed`);
     } else {
 	//Logger.log("Journal Flags or other Changed");
     }
 }
 
-function setJournalSyncDirty(journalEntry, dirty) {
+function setJournalSyncDirty(journalEntry, dirty, modified=false) {
     // Set the dirty flag as specified.
     journalEntry.setFlag('journal-sync', 'ExportDirty', dirty);
 
     // If this journal is now dirty, then also set lastmodified.
     // If it is clean, then leave the old modified flag.
-    if (dirty) {
+    if (dirty || modified) {
 	journalEntry.setFlag('journal-sync', 'LastModified', Date.now());
     }
 }
@@ -248,31 +250,35 @@ async function computeSyncActions(mmap) {
 
     let actions = [];
 
-    let fcn = function (mmap, pathaccum) {
-	let path = pathaccum + "/" + mmap.file;
-
+    let fcn = function (lmmap, pathaccum) {
+	let path = pathaccum + "/" + lmmap.file;
+	let jfolder = lmmap.journal;
+	
 	// Step 1: Do we need to make this directory?
-	if (!mmap.ondisk) {
+	if (!lmmap.ondisk) {
 	    actions.push({ action: "mkdir",
-			   what: mmap,
-			   where: path });
+			   what: lmmap,
+			   where: path,
+			   jwhere: jfolder });
 	}
 
 	// Step 2: Loop over all the files
-	for (let idx=0; idx < mmap.files.length; idx++) {
-	    let f = mmap.files[idx];
+	for (let idx=0; idx < lmmap.files.length; idx++) {
+	    let f = lmmap.files[idx];
 
 	    // Step 2.1: Save merge conflicts.
 	    if (f.merge_conflict) {
 		actions.push({ action: "conflict",
 			       what: f,
-			       where: path });
+			       where: path,
+			       jwhere: jfolder });
 	    } else {
 		// Step 2.2: Save exports
 		if (f.save_needed) {
 		    actions.push({ action: "export",
 				   what: f,
-				   where: path });
+				   where: path,
+				   jwhere: jfolder });
 
 		    
 		} else
@@ -280,7 +286,8 @@ async function computeSyncActions(mmap) {
 		    if (f.import_needed) {
 			actions.push({ action: "import",
 				       what: f,
-				       where: path });
+				       where: path,
+				       jwhere: jfolder });
 		    } else {
 			//Logger.log(`No Action needed on ${f.name}`);
 		    }
@@ -288,21 +295,151 @@ async function computeSyncActions(mmap) {
 	}
 
 	// Step 3: Loop over subdirs and recurse
-	for (let idx=0; idx < mmap.subdir.length; idx++) {
-	    fcn(mmap.subdir[idx], path);
+	for (let idx=0; idx < lmmap.subdir.length; idx++) {
+	    fcn(lmmap.subdir[idx], path);
 	}
     };
     
-    fcn(mmap,"");
+    fcn(mmap,"",undefined);
     
     return actions;
 }
 
+function actionPath(action) {
+    let fullpath = (validMarkdownSourcePath()+action.where).replace("//", "/").trim();
+    //Logger.log(`Action Path: ${fullpath}`);
+    return fullpath;
+};
+
 // ---------
 //
-// ACTIONS:  Misc command fcns the user can initiate.
+// DO ACTIONS:  Functions that will do needed actions of specific types.
 //
 // ---------
+async function doActionMkdir(action) {
+    // Take an action (see computeSyncActions) and create the needed directory
+
+    let path = actionPath(action);
+    
+    Logger.log("doAction: MKDIR: " + path);
+    await FilePicker.createDirectory(markdownPathOptions.activeSource, path).catch((error) => {
+        if (!error.includes("EEXIST")) {
+            Logger.log(error);
+        } else {
+            Logger.log(`Path ${path} exists`);
+        }	
+    });
+
+}
+
+async function doActionExport(action) {
+    // Take an action (see computeSyncActions) and export that item.
+
+    let path = actionPath(action);
+    let md = "";
+    let journalFileName = action.what.file;
+
+    if (typeof journalFileName === "undefined") {
+	// Never been saved?  Generate a nice name.
+	journalFileName = generateJournalFileName(action.what.journal);
+    }
+
+    Logger.log("doAction: Export: " + action.what.name + " -> " + path + "/" + journalFileName);
+        
+    var converter = new showdown.Converter({ tables: true, strikethrough: true });
+    md = converter.makeMarkdown(action.what.journal.data.content).split('\r\n');
+
+    let blob = new Blob([md], {type: "text/markdown"});
+    let file = new File([blob], journalFileName, {type: "text/markdown"});
+
+    FilePicker.upload(markdownPathOptions.activeSource, path, file, { bucket: null })
+        .then((result) => {
+            Logger.log(`Uploading ${markdownPathOptions.activeSource}/${path}`);
+        })
+        .catch((error) => {
+            Logger.log(error);
+        });
+
+    // Mark as clean (doesn't need to save anymore)
+    setJournalSyncDirty(action.what.journal, false);    
+}
+
+async function doActionImport(action) {
+    // Take an action (see computeSyncActions) and import that item.
+    let path = actionPath(action);
+    let md = "";
+    let journalFileName = action.what.file;
+    let fname = path + "/" + journalFileName;
+    Logger.log("doAction: import: " + action.what.name + " <- " + fname);
+
+    let journal = action.what.journal;
+    
+    // Journal should be valid to import into.
+    fetch(fname).then(response => {
+	response.text().then(contents => {
+
+            // If the contents is pure JSON ignore it as it may be used by 
+            // a module as configuration storage.
+            if (hasJsonStructure(contents)) {
+                md = contents;
+            } else {
+                var converter = new showdown.Converter({ tables: true, strikethrough: true })
+                md = converter.makeHtml(contents);
+            }
+
+	    if (typeof journal === "undefined") {
+		JournalEntry.create({ name: action.what.name, content: md, folder: action.jwhere,
+				      flags: { 'journal-sync': { ExportDirty: false,
+								 LastModified: Date.now() }}});
+	    } else {
+		journal.update({contents: md}); // This doesn't call our hook?
+		setJournalSyncDirty(journal, false, true);// Set not dirty, but also set modified hook.
+	    }
+	    Logger.log(`doAction: import: Async import done for ${fname}`);
+	    
+	}).catch(error => {
+	    Logger.log(error);
+	})
+    }).catch(error => {
+	Logger.log(error);
+    });
+}
+
+async function doActionConflict(action) {
+    // Take an action (see computeSyncActions) regarding conflicts
+
+    // TODO: a dialog to let users choose what to do maybe?
+}
+
+
+
+// ---------
+//
+// COMMANDS:  Misc command fcns the user can initiate.
+//
+// ---------
+async function commandExport() {
+    let actions = await computeSyncActions();
+
+    // Create all the directories.
+    actions.filter(a => a.action==="mkdir").forEach(a => doActionMkdir(a));
+
+    // Export files into the created directories
+    actions.filter(a => a.action==="export").forEach(a => doActionExport(a));
+}
+
+async function commandImport() {
+    let actions = await computeSyncActions();
+
+    // Import all files we found that need an import.
+    actions.filter(a => a.action==="import").forEach(a => doActionImport(a));
+}
+// ---------
+//
+// OLD COMMANDS:  Misc command fcns we want to obsolete.
+//
+// ---------
+
 async function startImport() {
     await createJournalFolders(validMarkdownSourcePath()+validImportWorldPath(), null);
     let result = await FilePicker.browse(markdownPathOptions.activeSource, validMarkdownSourcePath()+validImportWorldPath());

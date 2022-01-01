@@ -27,7 +27,7 @@ function scrape_timestamp_file(contents) {
 // of journal entries that have already been exported, or edited by
 // an external editor.
 //
-export async function scanDirectoryTree(markdownpathopts, start_dir) {
+async function scanDirectoryTree(markdownpathopts, start_dir) {
     // Scan directories and build out a tree of all the files on disk.
 
     //Logger.log("Start Dir: " + start_dir)
@@ -104,6 +104,7 @@ export async function scanDirectoryTree(markdownpathopts, start_dir) {
     
     return { file: dirname,
 	     name: dirname,
+	     ondisk: true,
 	     id: '',
 	     filemap: filemap,
 	     subdirmap: subdirmap };
@@ -121,7 +122,7 @@ export async function scanDirectoryTree(markdownpathopts, start_dir) {
 //
 // Scan the game journals and store them all into a tree.
 //
-export async function scanJournalTree() {
+async function scanJournalTree() {
     // Create the set of folders derived from the current set of Journals.
     let journalFolders = game.folders.filter(f => (f.data.type === "JournalEntry") && f.displayed);
     
@@ -142,8 +143,10 @@ export async function scanJournalTree() {
     // Once the hash is filled, we can build via the hash table.
     journalFolders.forEach(folderEntity => {
 	if (folderEntity.data.parent) {
+	    // Add to that parent's subdirmap.
             hashTable[folderEntity.data.parent].subdirmap.push(hashTable[folderEntity.id]);
         } else {
+	    // A folder w/ no parent goes into the root data tree
             dataTree.subdirmap.push(hashTable[folderEntity.id]);
         }
     })
@@ -159,17 +162,92 @@ export async function scanJournalTree() {
 }
 
 //
+// Create one FILE node for the merged journal tree.  Each FILE represents
+// one journal entry / file.
+// These are the items that go into the "FILES" slot in the tree structure.
+//
+function jfNode(file, jnode) {
+    let newnode;
+
+    // Assume that file & jnode are never both undefined.
+    
+    if (typeof file === "undefined") {
+	newnode = { name: jnode.data.name,
+		    file: undefined,
+		    filetimestamp: undefined,
+		    journaltimestamp: jnode.getFlag('journal-sync', 'LastModified'),
+		    ondisk: false,
+		    id: jnode.data._id,
+		    journal: jnode,
+		    // If there is no file, then by definition we need to save.  Always true.
+		    save_needed: true,
+		    // If there is no file, then no import is needed.
+		    import_needed: false,
+		    // No merge conflict if only a journal
+		    merge_conflict: false
+		  }
+    } else if (typeof jnode === "undefined") {
+	newnode = { name: file.name,
+		    file: file.file,
+		    filetimestamp: file.timestamp,
+		    journaltimestamp: undefined,
+		    ondisk: file.ondisk,
+		    id: file.id,
+		    journal: undefined,
+		    save_needed: false, // No journal, no save needed
+		    import_needed: true,// If there is no journal, then we surely must import
+		    merge_conflict: false // No merge conflict if only a file
+
+		  };
+    } else {
+	// If we have both, then we can do a nice merge.
+
+	if (typeof file.id === "string" && jnode.data._id !== file.id) {
+	    // TODO : multiple journals of same name ??
+	    // Work on this merge more.
+	    Logger.log(`${treenode.name}: ID for File Node ${file.name} does not match the found Journal of same name.`);
+	}
+
+	let jts = jnode.getFlag('journal-sync', 'LastModified');
+	let jdirty = jnode.getFlag('journal-sync', 'ExportDirty') ? true : false;
+	let fdirty = typeof jts === "undefined" || file.timestamp > jts;
+
+	newnode = { name: file.name,
+		    file: file.file,
+		    filetimestamp: file.timestamp,
+		    journaltimestamp: jts,
+		    ondisk: file.ondisk,
+		    id: jnode.data._id,
+		    journal: jnode,
+		    // If the journal is dirty then we need to save.
+		    // If the dirty flag is undefined, but there is a file, then someone probably
+		    // installed this module in an existing system with an old journal-sync - so no save needed.
+		    save_needed: jdirty,
+		    // If the file's reported timestamp is newer than the last edit time, then import is needed.
+		    import_needed: fdirty,
+		    // If we need to both save and import, then there is an issue.
+		    merge_conflict: jdirty && fdirty
+		  };
+	
+    }
+    
+    return newnode;
+}
+
+
+//
 // Merge trees from scanDirectoryTree and scanJournalTree
 // Create a new data structure that combines all the key bits of the two
 // trees.
 //
-export function mergeJournalAndFileTrees(filetree, journaltree) {
+function mergeJournalAndFileTrees(filetree, journaltree) {
 
     // First, if either one of these is undefined, create a mock version
     // so we can finish the operation.
     if (typeof filetree === "undefined") {
 	filetree = { name: journaltree.name,
 		     file: journaltree.file,
+		     ondisk: false,
 		     filemap: [],
 		     subdirmap: [],
 		     id: "" };
@@ -177,10 +255,10 @@ export function mergeJournalAndFileTrees(filetree, journaltree) {
     
     if (typeof journaltree === "undefined") {
 	journaltree = { journal: undefined,
-			    name: filetree.name,
-			    journalmap: [],
-			    subdirmap: [],
-			    id: "" };
+			name: filetree.name,
+			journalmap: [],
+			subdirmap: [],
+			id: "" };
     }
 
     
@@ -192,6 +270,7 @@ export function mergeJournalAndFileTrees(filetree, journaltree) {
     
     let treenode = { name: filetree.name,
 		     file: filetree.file,
+		     ondisk: filetree.ondisk,
 		     journal: journaltree.journal,
 		     files: [],
 		     subdir: [] };
@@ -209,31 +288,12 @@ export function mergeJournalAndFileTrees(filetree, journaltree) {
 	//Logger.log(`${treenode.name}: File Attempt: ${file.name} Found: ${jidx}`);
 	
 	if (jidx == -1) {
-	    newnode = { name: file.name,
-			file: file.file,
-			filetimestamp: file.timestamp,
-			ondisk: file.ondisk,
-			id: file.id,
-			journal: undefined
-		      };
+	    newnode = jfNode(file,undefined);;
 	} else {
 	    let jnode=journals[jidx];
 	    
+	    newnode = jfNode(file, jnode);
 	    
-	    if (typeof file.id === "string" && jnode.data._id !== file.id) {
-		// TODO : multiple journals of same name ??
-		// Work on this merge more.
-		Logger.log(`${treenode.name}: ID for File Node ${file.name} does not match the found Journal of same name.`);
-	    }
-	    
-	    newnode = { name: file.name,
-			file: file.file,
-			filetimestamp: file.timestamp,
-			ondisk: file.ondisk,
-			id: jnode.data._id,
-			journal: jnode	    
-		      };
-
 	    // Remove the found node from the list of journals
 	    journals.splice(jidx,1);
 	}
@@ -248,13 +308,8 @@ export function mergeJournalAndFileTrees(filetree, journaltree) {
 	let journal = journals[idx];
 	//Logger.log(`${treenode.name}: Solo Journal: ${journal.name}`);
 
-	let newnode = { name: journal.data.name,
-			file: undefined,
-			filetimestamp: undefined,
-			ondisk: false,
-			id: journal.data._id,
-			journal: journal	    
-		      };
+	let newnode = jfNode(undefined, journal);
+	
 	treenode.files.push(newnode);
     };
 

@@ -11,7 +11,7 @@ import * as Logger from './logger.js'
 // of journal entries that have already been exported, or edited by
 // an external editor.
 //
-async function scanDirectoryTree(markdownpathopts, start_dir) {
+export async function scanDirectoryTree(markdownpathopts, start_dir) {
     // Scan directories and build out a tree of all the files on disk.
 
     //Logger.log("Start Dir: " + start_dir)
@@ -109,7 +109,7 @@ async function scanDirectoryTree(markdownpathopts, start_dir) {
 //
 // Scan the game journals and store them all into a tree.
 //
-async function scanJournalTree() {
+export async function scanJournalTree() {
     // Create the set of folders derived from the current set of Journals.
     let journalFolders = game.folders.filter(f => (f.data.type === "JournalEntry") && f.displayed);
     
@@ -144,7 +144,6 @@ async function scanJournalTree() {
     game.journal.filter(f => (f.data.folder === null)).forEach((value, key, map) => {
 	dataTree.journalmap.push(value);
     });
-
     
     return dataTree;
 }
@@ -155,7 +154,7 @@ async function scanJournalTree() {
 // These are the items that go into the "FILES" slot in the tree structure.
 //
 function jfNode(file, jnode) {
-    let newnode;
+    let newnode = "Ooops!";
 
     // Assume that file & jnode are never both undefined.
     
@@ -193,8 +192,7 @@ function jfNode(file, jnode) {
 	if (typeof file.id === "string" && jnode.data._id !== file.id) {
 	    // TODO : multiple journals of same name ??
 	    // Work on this merge more.
-	    Logger.log(`${jnode.name}: ID for File Node ${file.name} does not match the found Journal of same name.`);
-	    return undefined;
+	    Logger.log(`"${jnode.name}" / ${jnode.id}: for File Node "${file.name}" / "${file.id}" does not match the found Journal of same name.  Using Journal ID instead.`);
 	}
 
 	let jts = Math.floor(jnode.getFlag('journal-sync', 'LastModified') / 1000); // convert to seconds to match file timestamp
@@ -231,7 +229,7 @@ function jfNode(file, jnode) {
 // Create a new data structure that combines all the key bits of the two
 // trees.
 //
-function mergeJournalAndFileTrees(filetree, journaltree) {
+export function mergeJournalAndFileTrees(filetree, journaltree) {
 
     // First, if either one of these is undefined, create a mock version
     // so we can finish the operation.
@@ -267,7 +265,7 @@ function mergeJournalAndFileTrees(filetree, journaltree) {
 		     subdir: [] };
 
     let files = filetree.filemap;
-    let journals = journaltree.journalmap;
+    let journals = journaltree.journalmap.slice(); // copy
 
     //Logger.log(`${treenode.name} Journal Length Before: ${journals.length}`);
     for (let idx=0; idx < files.length; idx++) {

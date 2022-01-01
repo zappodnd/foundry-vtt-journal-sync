@@ -196,7 +196,17 @@ async function chatCommandFcn (chatlog, messageText, chatdata) {
 	let dir = validMarkdownSourcePath()+validImportWorldPath();
 	Logger.log('Starting TEST sequence at ' + dir);
 
-	let mmap = await FileMap.computeTreeForJournals(markdownPathOptions, dir);
+	let fmap = await FileMap.scanDirectoryTree(markdownPathOptions, dir);
+	Logger.log("File Map");
+	Logger.log(fmap);
+
+	let jmap = await FileMap.scanJournalTree();
+	Logger.log("Journal Map");
+	Logger.log(jmap);
+
+	let mmap = FileMap. mergeJournalAndFileTrees(fmap, jmap);
+	
+	//let mmap = await FileMap.computeTreeForJournals(markdownPathOptions, dir);
 	Logger.log("Merged Map");
 	Logger.log(mmap);
 
@@ -335,11 +345,12 @@ async function computeSyncActions(mmap) {
 
     let actions = [];
 
-    let fcn = function (lmmap, pathaccum) {
+    let fcn = function (lmmap, pathaccum, prevfolder, depth) {
 	let path = pathaccum + "/" + lmmap.file;
 	let jfolder = lmmap.journal;
+	let fact = undefined;
 	
-	// Step 1: Do we need to make this directory?
+	// Step 1.1: Do we need to make this directory?
 	if (!lmmap.ondisk) {
 	    // If it doesn't exist on disk, then .file is undefined.
 	    // Derive from the name.
@@ -347,26 +358,42 @@ async function computeSyncActions(mmap) {
 	    actions.push({ action: "mkdir",
 			   what: lmmap,
 			   where: path,
-			   jwhere: jfolder });
+			   jwhere: jfolder,
+			   depth: depth});
 	}
+	// Step 1.2: Do we need to make a journal folder ?
+	if (!jfolder && lmmap != mmap) {
+	    // If it doesn't exist on disk, then .file is undefined.
+	    // Derive from the name.
+	    actions.push({ action: "mkfolder",
+			   what: lmmap,
+			   where: path,
+			   jwhere: prevfolder,
+			   depth: depth });
+	}
+	
 
 	// Step 2: Loop over all the files
 	for (let idx=0; idx < lmmap.files.length; idx++) {
 	    let f = lmmap.files[idx];
-
+	    if (typeof f === "undefined") {
+		Logger.log(`Undefined file found in ${lmmap.name}`);
+	    }
 	    // Step 2.1: Save merge conflicts.
 	    if (f.merge_conflict) {
 		actions.push({ action: "conflict",
 			       what: f,
 			       where: path,
-			       jwhere: jfolder });
+			       jwhere: jfolder,
+			       depth: depth });
 	    } else {
 		// Step 2.2: Save exports
 		if (f.save_needed) {
 		    actions.push({ action: "export",
 				   what: f,
 				   where: path,
-				   jwhere: jfolder });
+				   jwhere: jfolder,
+				   depth: depth });
 
 		    
 		} else
@@ -375,7 +402,8 @@ async function computeSyncActions(mmap) {
 			actions.push({ action: "import",
 				       what: f,
 				       where: path,
-				       jwhere: jfolder });
+				       jwhere: jfolder,
+				       depth: depth });
 		    } else {
 			//Logger.log(`No Action needed on ${f.name}`);
 		    }
@@ -384,11 +412,11 @@ async function computeSyncActions(mmap) {
 
 	// Step 3: Loop over subdirs and recurse
 	for (let idx=0; idx < lmmap.subdir.length; idx++) {
-	    fcn(lmmap.subdir[idx], path);
+	    fcn(lmmap.subdir[idx], path, jfolder, depth+1);
 	}
     };
     
-    fcn(mmap,"",undefined);
+    fcn(mmap,"",undefined, 0);
     
     return actions;
 }
@@ -417,7 +445,6 @@ async function doActionMkdir(action) {
             Logger.log(`Path ${path} exists`);
         }	
     });
-
 }
 
 async function doActionExport(action) {
@@ -452,6 +479,51 @@ async function doActionExport(action) {
     setJournalSyncDirty(action.what.journal, false);    
 }
 
+var globalActionFolderCreateCache = [];
+
+function findJFolderFromDirname(dirname,back=0) {
+    // Find a JournalEntry Folder derived from the pathname DIRNAME.
+    // Optional input BACK by default takes the last entry in DIRNAME (0)
+    // if you specify 1, then find parent based on next-to-last entry.
+    let path = dirname.split("/");
+    let targetname = path[path.length-back-1];
+    let parent = game.folders.filter(f => (f.data.type === "JournalEntry") && (f.data.name === targetname));
+
+    if (parent.length !== 1) {
+	// Too bad - not sure what happend.
+	Logger.log(`Parent search fialed at "${targetname}"`);
+	return;
+    }
+    
+    //Logger.log(parent)
+    return parent[0];
+}
+
+async function doActionMkFolder(action) {
+    if (action.depth === 1) {
+	// At depth 1, jwhere will be empty, so just go with null for parent folder.
+	Logger.log(`Create root folder: ${action.what.name}`);
+	let F = await Folder.create({name: action.what.name, type: "JournalEntry", parent: "" });
+	globalActionFolderCreateCache.push(F);
+    } else if (action.depth >= 2) {
+	// At depth 2 or more the jwhere field should not be undefined.  If it is, then hopefully
+	// a previous action created the parent journal.  Go find it.  If not, skip.
+	let parent = action.jwhere;
+	if (typeof parent === "undefined") {
+	    Logger.log(`Create sub folder with no parent: ${action.what.name}`);
+	    parent = findJFolderFromDirname(action.where,1);
+	    if (typeof parent === "undefined") {
+		Logger.log(`No parent found - bail on this make, try again`);
+		return
+	    }
+	}
+	// jwhere is set - just do it.
+	Logger.log(`Create sub folder: ${action.what.name} under ${parent.data.name}`);
+	let F = await Folder.create({name: action.what.name, type: "JournalEntry", parent: parent.data._id });
+	globalActionFolderCreateCache.push(F);
+    }
+}
+
 async function doActionImport(action) {
     // Take an action (see computeSyncActions) and import that item.
     let path = actionPath(action);
@@ -476,14 +548,28 @@ async function doActionImport(action) {
             }
 
 	    if (typeof journal === "undefined") {
-		JournalEntry.create({ name: action.what.name, content: md, folder: action.jwhere,
+		let parentfolder = action.jwhere;
+		
+		if (action.depth >= 1 && typeof parentfolder === "undefined") {
+		    // No journal but high depth means the folder wasn't available during action creation.
+		    // Search for a parent now.
+		    // Logger.log(`To create ${action.what.name} parent was undefined.  Checking via dirname`);
+		    parentfolder = findJFolderFromDirname(action.where);
+		    if (typeof parent === "undefined") {
+			Logger.log(`No parent for journal ${action.what.name} found - bail on this import, try again`);
+			return
+		    }
+		}
+		
+		JournalEntry.create({ name: action.what.name, content: md, folder: parentfolder.data._id,
 				      flags: { 'journal-sync': { ExportDirty: false,
 								 LastModified: Date.now() }}});
+		
 	    } else {
 		journal.update({contents: md}); // This doesn't call our hook?
 		setJournalSyncDirty(journal, false, true);// Set not dirty, but also set modified hook.
 	    }
-	    Logger.log(`doAction: import: Async import done for ${fname}`);
+	    //Logger.log(`doAction: import: Async import done for ${fname}`);
 	    
 	}).catch(error => {
 	    Logger.log(error);
@@ -510,7 +596,9 @@ async function commandExport() {
     let actions = await computeSyncActions();
 
     // Create all the directories.
-    actions.filter(a => a.action==="mkdir").forEach(a => doActionMkdir(a));
+    for (const a of actions.filter(a => a.action==="mkdir")) {
+	await doActionMkdir(a);
+    }
 
     // Export files into the created directories
     actions.filter(a => a.action==="export").forEach(a => doActionExport(a));
@@ -520,6 +608,13 @@ async function commandExport() {
 
 async function commandImport() {
     let actions = await computeSyncActions();
+    globalActionFolderCreateCache = []; // Re-init to empty
+    
+    // Create all the journal folders.
+    for (const a of actions.filter(a => a.action==="mkfolder")) {
+	fold++;
+	await doActionMkFolder(a);
+    }
 
     // Import all files we found that need an import.
     actions.filter(a => a.action==="import").forEach(a => doActionImport(a));
@@ -529,10 +624,21 @@ async function commandImport() {
 
 async function commandSync() {
     let actions = await computeSyncActions();
-    let dir = 0, ex = 0, im = 0, con = 0;
+    let dir = 0, fold=0, ex = 0, im = 0, con = 0;
+
+    globalActionFolderCreateCache = []; // Re-init to empty
     
+    // Create all the journal folders.
+    for (const a of actions.filter(a => a.action==="mkfolder")) {
+	fold++;
+	await doActionMkFolder(a);
+    }
+
     // Create all the directories.
-    actions.filter(a => a.action==="mkdir").forEach(a => {dir++; doActionMkdir(a)});
+    for (const a of actions.filter(a => a.action==="mkdir")) {
+	dir++;
+	await doActionMkdir(a);
+    }
 
     // Export files into the created directories
     actions.filter(a => a.action==="export").forEach(a => {ex++; doActionExport(a)});
@@ -540,7 +646,7 @@ async function commandSync() {
     // Import all files we found that need an import.
     actions.filter(a => a.action==="import").forEach(a => {im++; doActionImport(a)});
 
-    ui.notifications.info(`Sync Complete:  Directory Creation (${dir}) Export (${ex}) Import (${im})`);
+    ui.notifications.info(`Sync Complete:  Directory Creation (${dir}) Export (${ex}) Folder Create (${fold}) Import (${im})`);
 }
 
 // ---------

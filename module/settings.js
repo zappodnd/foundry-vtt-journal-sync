@@ -53,29 +53,22 @@ const settings = [
     type: Boolean,
     onChange: fetchParams
   },
+  //{
+  //  name: "SkipJournalFolders",
+  //  scope: "world",
+  //  default: "",
+  //  type: String,
+  //  onChange: fetchParams
+  //},
+  //{
+  //  name: "SkipJournalEntries",
+  //  scope: "world",
+  //  default: "",
+  //  type: String,
+  //  onChange: fetchParams
+  //},
   {
-    name: "SkipJournalFolders",
-    scope: "world",
-    default: "",
-    type: String,
-    onChange: fetchParams
-  },
-  {
-    name: "SkipJournalEntries",
-    scope: "world",
-    default: "",
-    type: String,
-    onChange: fetchParams
-  },
-  {
-    name: "ImportWorldPath",
-    scope: "world",
-    default: "",
-    type: String,
-    onChange: fetchParams
-  },
-  {
-    name: "ExportWorldPath",
+    name: "SyncWorldPath",
     scope: "world",
     default: "",
     type: String,

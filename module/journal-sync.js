@@ -3,7 +3,7 @@ import * as Constants from "./constants.js"
 import * as Logger from './logger.js'
 import * as FileMap from './filemap.js'
 
-let markdownPathOptions, markdownSourcePath, journalEditorLink, importWorldPath, exportWorldPath;
+let markdownPathOptions, markdownSourcePath, journalEditorLink, syncWorldPath, exportWorldPath;
 let enableTracing = false;
 let newImportedFiles = "";
 let skippedJournalFolders, skippedJournalEntries;
@@ -44,22 +44,18 @@ export async function fetchParams(silent = false) {
     journalEditorLink = game.settings.get(Constants.MODULE_NAME, "JournalEditorLink");
     enableTracing = game.settings.get(Constants.MODULE_NAME, "EnableTracing");
     
-    importWorldPath = game.settings.get(Constants.MODULE_NAME, "ImportWorldPath");
-    exportWorldPath = game.settings.get(Constants.MODULE_NAME, "ExportWorldPath");
-
-    skippedJournalFolders = game.settings.get(Constants.MODULE_NAME, "SkipJournalFolders").split(',');
-    skippedJournalEntries = game.settings.get(Constants.MODULE_NAME, "SkipJournalEntries").split(',');
+    syncWorldPath = game.settings.get(Constants.MODULE_NAME, "SyncWorldPath");
 
     // If the entries are empty it will set the array to one empty string ""
     // This matches the root path where the folder name is also 
     // "" so blocked export/import. If nothing set put a name in that no
     // one in their right mind would use :)
-    if(skippedJournalFolders.length == 1 && skippedJournalFolders[0] === "") {
-        skippedJournalFolders[0] = "NOTHINGHASBEENSETTOSKIP";
-    }
-    if(skippedJournalEntries.length == 1 && skippedJournalEntries[0] === "") {
-        skippedJournalEntries[0] = "NOTHINGHASBEENSETTOSKIP";
-    }
+    //if(skippedJournalFolders.length == 1 && skippedJournalFolders[0] === "") {
+    //    skippedJournalFolders[0] = "NOTHINGHASBEENSETTOSKIP";
+    //}
+    //if(skippedJournalEntries.length == 1 && skippedJournalEntries[0] === "") {
+    //    skippedJournalEntries[0] = "NOTHINGHASBEENSETTOSKIP";
+    //}
 }
 
 // ---------
@@ -193,7 +189,7 @@ async function chatCommandFcn (chatlog, messageText, chatdata) {
 	return "This is a help string";
 	
     case "test": // /js test
-	let dir = validMarkdownSourcePath()+validImportWorldPath();
+	let dir = validMarkdownSourcePath()+validSyncWorldPath();
 	Logger.log('Starting TEST sequence at ' + dir);
 
 	let fmap = await FileMap.scanDirectoryTree(markdownPathOptions, dir);
@@ -339,7 +335,7 @@ async function computeSyncActions(mmap) {
     // Compute the journal/file tree, and scan the tree for actions needed.
     // Return a list of actions that are needed.
     if (typeof mmap === "undefined") {
-	let dir = validMarkdownSourcePath()+validImportWorldPath();
+	let dir = validMarkdownSourcePath()+validSyncWorldPath();
 	mmap = await FileMap.computeTreeForJournals(markdownPathOptions, dir);
     }
 
@@ -664,17 +660,10 @@ function validMarkdownSourcePath() {
     return validMarkdownSourcePath;
 }
 
-function validImportWorldPath() {
-    let validImportWorldPath = importWorldPath == "" ? (validGameName() + "/") : importWorldPath;
-    validImportWorldPath += validImportWorldPath.endsWith("/") ? "" : "/";
-    return validImportWorldPath;
-}
-
-function validExportWorldPath() {
-    //Logger.log(game.world)
-    let validExportWorldPath = exportWorldPath == "" ? (validGameName() + "/") : exportWorldPath;
-    validExportWorldPath += validExportWorldPath.endsWith("/") ? "" : "/";
-    return validExportWorldPath;
+function validSyncWorldPath() {
+    let validSyncWorldPath = syncWorldPath == "" ? (validGameName() + "/") : syncWorldPath;
+    validSyncWorldPath += validSyncWorldPath.endsWith("/") ? "" : "/";
+    return validSyncWorldPath;
 }
 
 function isValidFileName(filename) {
